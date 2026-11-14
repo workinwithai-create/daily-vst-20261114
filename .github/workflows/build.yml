@@ -1,0 +1,88 @@
+name: Build Neon Dust Lasso
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package artefacts
+        shell: bash
+        run: |
+          mkdir -p package
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # Windows paths
+            if [ -d "build/NeonDustLasso_artefacts/Release/VST3" ]; then
+              cp -r "build/NeonDustLasso_artefacts/Release/VST3" package/
+            fi
+            if [ -d "build/NeonDustLasso_artefacts/Release/Standalone" ]; then
+              cp -r "build/NeonDustLasso_artefacts/Release/Standalone" package/
+            fi
+            # Also catch .exe if flat
+            find build -name "*.exe" -path "*/Standalone/*" -exec cp {} package/ \; || true
+          else
+            # macOS
+            if [ -d "build/NeonDustLasso_artefacts/Release/VST3" ]; then
+              cp -r "build/NeonDustLasso_artefacts/Release/VST3" package/
+            fi
+            if [ -d "build/NeonDustLasso_artefacts/Release/Standalone" ]; then
+              cp -r "build/NeonDustLasso_artefacts/Release/Standalone" package/
+            fi
+          fi
+          cd package
+          zip -r "../NeonDustLasso-${{ runner.os }}.zip" .
+
+      - name: Upload artefact zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: NeonDustLasso-${{ runner.os }}
+          path: NeonDustLasso-${{ runner.os }}.zip
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - name: Download all artefacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artefacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-20261114-${{ github.run_number }}
+          name: Neon Dust Lasso 1.0.0 (2026-11-14)
+          body: |
+            Daily experimental cyber-western FM instrument by MPJRecords.
+            
+            Includes macOS and Windows VST3 + Standalone builds.
+            
+            Theme: Neon Dust Lasso – dusty neon harmonics across the frontier.
+          draft: false
+          prerelease: false
+          files: artefacts/**/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
